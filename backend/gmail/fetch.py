@@ -1,0 +1,77 @@
+import base64
+from datetime import datetime
+from backend.auth.gmail_auth import get_gmail_service
+from backend.schemas.models import RawEmail
+
+TNP_SENDER = 'tnpcell@nsitonline.in'
+MAX_EMAILS = 10
+
+def fetch_tnp_emails() -> list[RawEmail]:
+    results = []
+
+    #to get Gmail service object
+    service = get_gmail_service()
+
+
+    response = service.users().messages().list(
+        userId='me',
+        q=f'from:{TNP_SENDER}',
+        maxResults=MAX_EMAILS
+    ).execute()
+
+    messages = response.get('messages', [])
+
+    if not messages:
+        print("No recent emails from TNP.")
+        return results
+
+    # for each ID, fetch full email content
+    for msg in messages:
+        message = service.users().messages().get(
+            userId='me',
+            id=msg['id'],
+            format='full'
+        ).execute()
+
+        # extract fields from raw API response
+        headers = message['payload']['headers']
+        subject = next(
+            (h['value'] for h in headers if h['name'] == 'Subject'), 
+            'No Subject'
+        )
+        date_str = next(
+            (h['value'] for h in headers if h['name'] == 'Date'), 
+            None
+        )
+        received_at = datetime.now()  # fallback
+        if date_str:
+            try:
+                from email.utils import parsedate_to_datetime
+                received_at = parsedate_to_datetime(date_str)
+            except Exception:
+                pass
+
+        # extract body
+        body = ''
+        payload = message.get('payload', {})
+        if 'parts' in payload:
+            for part in payload['parts']:
+                if part['mimeType'] == 'text/plain':
+                    data = part['body'].get('data', '')
+                    body = base64.urlsafe_b64decode(data).decode('utf-8')
+                    break
+        elif 'body' in payload:
+            data = payload['body'].get('data', '')
+            body = base64.urlsafe_b64decode(data).decode('utf-8')
+
+
+        raw_email = RawEmail(
+            gmail_message_id=msg['id'],
+            subject=subject,
+            body=body,
+            received_at=received_at
+        )
+        results.append(raw_email)
+
+    
+    return results
