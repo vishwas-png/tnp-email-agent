@@ -2,6 +2,8 @@ import base64
 from datetime import datetime
 from backend.auth.gmail_auth import get_gmail_service
 from backend.schemas.models import RawEmail
+from bs4 import BeautifulSoup
+import json
 
 TNP_SENDER = 'tnpcell@nsitonline.in'
 MAX_EMAILS = 10
@@ -51,15 +53,43 @@ def fetch_tnp_emails() -> list[RawEmail]:
             except Exception:
                 pass
 
-        # extract body
+        def extract_body(parts):
+         plain = ''
+         html = ''
+    
+         for part in parts:
+          mime = part.get('mimeType', '')
+        
+        # if this part has nested parts, search inside recursively
+          if 'parts' in part:
+            nested_plain, nested_html = extract_body(part['parts'])
+            if nested_plain:
+                plain = nested_plain
+            if nested_html:
+                html = nested_html
+                
+          elif mime == 'text/plain':
+            data = part['body'].get('data', '')
+            if data:
+                plain = base64.urlsafe_b64decode(data).decode('utf-8')
+                
+          elif mime == 'text/html':
+            data = part['body'].get('data', '')
+            if data:
+                html = base64.urlsafe_b64decode(data).decode('utf-8')
+    
+         return plain, html
+        
+         # extract body
         body = ''
         payload = message.get('payload', {})
         if 'parts' in payload:
-            for part in payload['parts']:
-                if part['mimeType'] == 'text/plain':
-                    data = part['body'].get('data', '')
-                    body = base64.urlsafe_b64decode(data).decode('utf-8')
-                    break
+           plain, html = extract_body(payload['parts'])
+        if plain:
+           body = plain
+        elif html:
+           body = BeautifulSoup(html, 'html.parser').get_text()
+       
         elif 'body' in payload:
             data = payload['body'].get('data', '')
             body = base64.urlsafe_b64decode(data).decode('utf-8')
