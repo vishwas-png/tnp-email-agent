@@ -4,6 +4,7 @@ from backend.auth.gmail_auth import get_gmail_service
 from backend.schemas.models import RawEmail
 from bs4 import BeautifulSoup
 import json
+import re
 
 TNP_SENDER = 'tnpcell@nsitonline.in'
 MAX_EMAILS = 10
@@ -53,6 +54,7 @@ def fetch_tnp_emails() -> list[RawEmail]:
             except Exception:
                 pass
 
+## ---------------------extraction recursive function to extract threads---------------------------------------------------------------------
         def extract_body(parts):
          plain = ''
          html = ''
@@ -80,20 +82,24 @@ def fetch_tnp_emails() -> list[RawEmail]:
     
          return plain, html
         
+##------------------------------------------------------------------------------------------------------------------------------------
+        
          # extract body
         body = ''
         payload = message.get('payload', {})
         if 'parts' in payload:
            plain, html = extract_body(payload['parts'])
         if plain:
-           body = plain
+            body = plain
         elif html:
-           body = BeautifulSoup(html, 'html.parser').get_text()
+            body = BeautifulSoup(html, 'html.parser').get_text()
        
         elif 'body' in payload:
             data = payload['body'].get('data', '')
             body = base64.urlsafe_b64decode(data).decode('utf-8')
 
+        
+        body= re.split(r"On .+ wrote:",body,flags=re.DOTALL)[0]
 
         raw_email = RawEmail(
             gmail_message_id=msg['id'],

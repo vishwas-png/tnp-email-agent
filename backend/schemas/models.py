@@ -6,7 +6,6 @@ class JobCategory(str,Enum):
     TECH="tech"
     NON_TECH="non_tech"
     CORE="core"
-    NOT_APPLICABLE="na"
 
 class EmailCategory(str, Enum):
     GENERAL_NOTICE = "general_notice"
@@ -21,13 +20,14 @@ class RawEmail(BaseModel):
 
 class ExtractedInfo(BaseModel):
     category: EmailCategory
+    job_category:JobCategory|None = None
     summary: str
-    company_name:str
-    job_role:str
+    company_name:str|None=None
+    job_role:str|None=None
     deadline: datetime | None = None
     eligibility: str | None = None
     action_items: list[str] = []
-    apply_link:
+    apply_link:str|None = None
     confidence_score: float | None = None
     received_at: datetime | None = None
 
