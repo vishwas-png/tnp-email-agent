@@ -2,7 +2,11 @@ from pydantic import BaseModel,Field
 from enum import Enum
 from datetime import datetime
 from uuid import UUID
-
+class JobCategory(str,Enum):
+    TECH="tech"
+    NON_TECH="non_tech"
+    CORE="core"
+    NOT_APPLICABLE="na"
 
 class EmailCategory(str, Enum):
     GENERAL_NOTICE = "general_notice"
@@ -18,10 +22,14 @@ class RawEmail(BaseModel):
 class ExtractedInfo(BaseModel):
     category: EmailCategory
     summary: str
+    company_name:str
+    job_role:str
     deadline: datetime | None = None
     eligibility: str | None = None
     action_items: list[str] = []
+    apply_link:
     confidence_score: float | None = None
+    received_at: datetime | None = None
 
 class GraphState(BaseModel):
     raw_email: str

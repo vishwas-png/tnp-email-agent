@@ -4,7 +4,7 @@ students stay informed about opportunities and deadlines.
 
 Analyze the following email and extract these fields:
 
-1. category: classify as one of [Placement, Internship, General]
+1. category: classify as one of [placement, internship, general_notice]
 2. summary: 2-3 sentences under 60 words explaining the main purpose of the email, 
    key opportunity details, and why a student should pay attention to it
 3. deadline: extract the deadline, date and time for the activity mentioned in the email
