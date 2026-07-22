@@ -89,9 +89,9 @@ def fetch_tnp_emails() -> list[RawEmail]:
         payload = message.get('payload', {})
         if 'parts' in payload:
            plain, html = extract_body(payload['parts'])
-        if plain:
+           if plain:
             body = plain
-        elif html:
+           elif html:
             body = BeautifulSoup(html, 'html.parser').get_text()
        
         elif 'body' in payload:

@@ -32,7 +32,7 @@ class ExtractedInfo(BaseModel):
     received_at: datetime | None = None
 
 class GraphState(BaseModel):
-    raw_email: str
+    raw_email: RawEmail
     category: EmailCategory | None = None
     extracted_info: ExtractedInfo | None = None
     validation_passed: bool = False

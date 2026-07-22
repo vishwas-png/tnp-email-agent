@@ -52,3 +52,27 @@ Email:
 {email_body}
 
 Return only the structured data, no additional commentary or explanation."""
+
+
+TNP_CLASSIFY_PROMPT = """You are classifying a TNP (Training and Placement) email for an engineering college.
+
+Classify it into exactly one of:
+- "placement": full-time job opportunity from a company
+- "internship": internship opportunity from a company
+- "general_notice": everything else — policy updates, portal instructions, event announcements, reminders
+
+Base your answer only on the email content.
+
+Email:
+{email_body}
+
+Return only a JSON object with a single field "category", no additional commentary."""
+
+TNP_SUMMARY_PROMPT = """You are summarizing a general TNP notice for an engineering college — not a job or internship opening.
+
+Write a clean 2-3 sentence summary (under 60 words) covering what the notice is about and what, if anything, a student needs to do.
+
+Email:
+{email_body}
+
+Return only the structured summary, no additional commentary."""
