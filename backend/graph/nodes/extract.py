@@ -15,7 +15,7 @@ llm=ChatGroq(
 
 
 def extract_node(state:GraphState)->GraphState:
-     prompt=TNP_EXTRACTION_PROMPT.format(email_body=state.raw_email.body,received_at=state.raw_email.received_at)
+     prompt=TNP_EXTRACTION_PROMPT.format(email_body=state.raw_email.body,received_at=state.raw_email.received_at,subject=state.raw_email.subject)
      result=llm.with_structured_output(ExtractedInfo).invoke(prompt)
 
      result.category=state.category
