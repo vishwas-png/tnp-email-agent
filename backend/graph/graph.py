@@ -7,9 +7,6 @@ from backend.graph.nodes.validate import validate_node
 from datetime import datetime, timezone, timedelta
 
 
-test_mail= RawEmail(
-    gmail_message_id='19fa4493321fae1f', subject='Re: Fundwave | Full Stack | 6M+PPO', body="Dear students,\r\n\r\nThe OA venue has been changed to Computer Centre.\r\nThe reporting timing remains the same.\r\n\r\nRegards,\r\nPlaceComm'27\r\n\r\n\r\n", received_at=datetime(2026, 7, 27, 21, 24, 8, tzinfo=timezone(timedelta(seconds=19800)))
-)
 
 
 def route_after_classify(state: GraphState) -> str:
@@ -45,14 +42,6 @@ graph.add_conditional_edges("validate",route_after_validate)
 
 workflow=graph.compile()
 
-intial_state=GraphState(raw_email=test_mail)
-
-
-result=workflow.invoke(intial_state)
-
-print(result)
-
-print(type(result))
 
 
       

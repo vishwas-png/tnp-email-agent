@@ -1,13 +1,9 @@
 from backend.gmail.fetch import fetch_tnp_emails
-import json
-from backend.graph.nodes.extract import extract_info
+from backend.graph.graph import workflow
+from backend.db.database import create_db_and_tables, get_session
+from backend.db.crud import get_or_create_user, is_duplicate_email, save_email, save_extraction_result
+from backend.pipeline import run_pipeline
 
 if __name__ == "__main__":
-    emails = fetch_tnp_emails()
-    
-    for email in emails:
-         extracted_info=extract_info(email)
-         print(f"\n--- {email.subject} ---")
-         result = extracted_info
-         print(result.model_dump_json(indent=2))
-         
+     run_pipeline()
+   
