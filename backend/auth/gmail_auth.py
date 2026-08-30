@@ -1,33 +1,34 @@
 import os
 import json
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
+from sqlmodel import Session, select
+from backend.db.database import engine
+from backend.db.models import User
+from backend.auth.encrypt import encrypt_token , decrypt_token
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 CREDENTIALS_FILE = 'credentials.json'
-TOKEN_FILE = 'token.json'
 
-def get_gmail_service():
-    creds = None
+def get_gmail_service(user_email: str):
+    with Session(engine) as session:
+        statement = select(User).where(User.email == user_email)
+        user = session.exec(statement).first()
 
-    # Step 1: if token.json exists, load saved tokens into creds
-    if os.path.exists(TOKEN_FILE):
-        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+        if user is None or user.token_json is None:
+            raise ValueError(f"No token found for user {user_email}")
 
-    # Step 2: if creds expired but refresh token exists, refresh silently
-    if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-        with open(TOKEN_FILE, 'w') as f:
-            f.write(creds.to_json())
+        token_info = json.loads(decrypt_token(user.token_json))
+        creds = Credentials.from_authorized_user_info(token_info, SCOPES)
 
-    # Step 3: no valid creds at all, run browser consent flow
-    if not creds or not creds.valid:
-        flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
-        creds = flow.run_local_server(port=0)
-        with open(TOKEN_FILE, 'w') as f:
-            f.write(creds.to_json())
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            user.token_json = encrypt_token(creds.to_json())
+            session.add(user)
+            session.commit()
 
-    # Step 4: build and return Gmail service object
-    return build('gmail', 'v1', credentials=creds) 
+        if not creds or not creds.valid:
+            raise ValueError(f"Invalid credentials for user {user_email}, needs re-consent")
+
+        return build('gmail', 'v1', credentials=creds)

@@ -1,7 +1,7 @@
-from sqlmodel import Session, select ,func
+from sqlmodel import Session, select, func
 from backend.db.models import User, Email, ExtractedInfoDB
 import json
-from datetime import timezone, timedelta ,datetime
+from datetime import timezone, timedelta, datetime
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -29,7 +29,7 @@ def is_duplicate_email(session: Session, gmail_message_id: str) -> bool:
 
 
 def save_email(session: Session, raw_email, user_id: int) -> Email:
-    received_at_utc=raw_email.received_at.astimezone(timezone.utc)
+    received_at_utc = raw_email.received_at.astimezone(timezone.utc)
     email_row = Email(
         gmail_message_id=raw_email.gmail_message_id,
         user_id=user_id,
@@ -69,6 +69,7 @@ def save_extraction_result(session: Session, email_id: int, result: dict) -> Ext
     session.refresh(extraction_row)
     return extraction_row
 
+
 def get_verified_notices(session: Session):
     statement = (
         select(Email, ExtractedInfoDB)
@@ -79,12 +80,13 @@ def get_verified_notices(session: Session):
     results = session.exec(statement).all()
     return results
 
+
 def needs_processing(session: Session, gmail_message_id: str) -> bool:
     email_statement = select(Email).where(Email.gmail_message_id == gmail_message_id)
     existing_email = session.exec(email_statement).first()
 
     if existing_email is None:
-        return True  
+        return True
 
     extraction_statement = select(ExtractedInfoDB).where(
         ExtractedInfoDB.email_id == existing_email.id,
@@ -92,20 +94,21 @@ def needs_processing(session: Session, gmail_message_id: str) -> bool:
     )
     completed_extraction = session.exec(extraction_statement).first()
 
-    return completed_extraction is None 
+    return completed_extraction is None
 
 
-def get_latest_received_at(session: Session) -> datetime | None:
-    statement = select(func.max(Email.received_at))
+def get_latest_received_at(session: Session, user_id: int) -> datetime | None:
+    statement = select(func.max(Email.received_at)).where(Email.user_id == user_id)
     result = session.exec(statement).first()
     return result
 
 
-def get_stuck_emails(session: Session) -> list[Email]:
+def get_stuck_emails(session: Session, user_id: int) -> list[Email]:
     statement = (
         select(Email)
         .outerjoin(ExtractedInfoDB, Email.id == ExtractedInfoDB.email_id)
         .where(
+            Email.user_id == user_id,
             (ExtractedInfoDB.id == None) |
             (~ExtractedInfoDB.processing_status.in_(["verified", "failed_validation"]))
         )

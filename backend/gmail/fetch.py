@@ -7,13 +7,11 @@ import json
 import re
 
 TNP_SENDER = 'tnpcell@nsitonline.in'
-MAX_EMAILS = 100  # safety cap only, not the primary filter anymore
+MAX_EMAILS = 100  # for testing only 
 
-def fetch_tnp_emails(after: datetime | None = None) -> list[RawEmail]:
+def fetch_tnp_emails(service,after: datetime | None = None) -> list[RawEmail]:
     results = []
-
-    # to get Gmail service object
-    service = get_gmail_service()
+     
 
     query = f'from:{TNP_SENDER}'
     if after:
