@@ -76,6 +76,7 @@ def get_verified_notices(session: Session):
         .join(ExtractedInfoDB, ExtractedInfoDB.email_id == Email.id)
         .where(ExtractedInfoDB.processing_status == "verified")
         .order_by(Email.received_at.desc())
+        .limit(10)
     )
     results = session.exec(statement).all()
     return results

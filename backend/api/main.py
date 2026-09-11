@@ -8,22 +8,53 @@ from backend.auth.gmail_auth import SCOPES, CREDENTIALS_FILE
 from backend.db.models import User
 from sqlmodel import select
 from backend.auth.encrypt import encrypt_token , decrypt_token
+from fastapi.middleware.cors import CORSMiddleware
+from backend.auth.jwt_handler import create_access_token,create_refresh_token,verify_token
+from fastapi import Response
+from fastapi import Cookie
+from fastapi import HTTPException
+
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    allow_credentials=True
+)
+
+
 @app.get("/notices")
-def read_notices(session: Session = Depends(get_session)):
+def read_notices(access_token: str = Cookie(None),session: Session = Depends(get_session)):
+
+    if access_token is None:
+        raise HTTPException(status_code=401, detail="Not logged in")
+
+    payload = verify_token(access_token)
+    user_email = payload["sub"]
+
     results = get_verified_notices(session)
 
     notices = []
     for email, extraction in results:
-        notices.append({
+        notice_dict=({
+            "gmail_message_id":email.gmail_message_id,
             "subject": email.subject,
             "received_at": to_ist(email.received_at),
-            "company_name": extraction.company_name,
-            "deadline": to_ist(extraction.deadline),
             "summary": extraction.summary,
             "action_items": extraction.action_items,
         })
+        if extraction.category:
+          notice_dict["category"] = extraction.category
+        if extraction.deadline:
+          notice_dict["deadline"]=to_ist(extraction.deadline)
+
+        if extraction.company_name:
+           notice_dict["company_name"]=extraction.company_name
+
+        notices.append(notice_dict)
+
 
     return notices
 
@@ -44,7 +75,7 @@ def connect_gmail(email:str):
     return RedirectResponse(authorization_url)
 
 @app.get("/oauth/callback")
-def callback(code:str,state:str,session:Session = Depends(get_session)):
+def callback(code:str,state:str,response: Response,session:Session = Depends(get_session)):
       flow = Flow.from_client_secrets_file(
             CREDENTIALS_FILE,
             scopes=SCOPES,
@@ -63,5 +94,11 @@ def callback(code:str,state:str,session:Session = Depends(get_session)):
       user.token_json = encrypt_token(creds.to_json())
       session.add(user)
       session.commit()
+
+
+      access_token = create_access_token(state)
+      refresh_token = create_refresh_token(state)
+      response.set_cookie(key="access_token", value=access_token, httponly=True)
+      response.set_cookie(key="refresh_token", value=refresh_token, httponly=True)   
 
       return {"status": "success", "email": state}
