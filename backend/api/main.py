@@ -102,3 +102,18 @@ def callback(code:str,state:str,response: Response,session:Session = Depends(get
       response.set_cookie(key="refresh_token", value=refresh_token, httponly=True)   
 
       return {"status": "success", "email": state}
+
+
+@app.get("/refresh-token")
+def refresh_token_route(response: Response, refresh_token: str = Cookie(None)):
+   if refresh_token is None:
+        raise HTTPException(status_code=401, detail="Not logged in")
+   payload = verify_token(refresh_token)
+   user_email = payload["sub"]
+
+   new_access_token = create_access_token(user_email)
+   response.set_cookie(key="access_token", value=new_access_token, httponly=True)
+
+   return { "status":"refreshed"}
+  
+      

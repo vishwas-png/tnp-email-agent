@@ -8,7 +8,18 @@ function Dashboard() {
 
   useEffect(() => {
     async function fetchNotices() {
-      const response = await fetch("http://localhost:8000/notices",{credentials: "include"});
+      let response = await fetch("http://localhost:8000/notices",{credentials: "include"});
+      if(response.status == 401){
+        const result=await fetch("http://localhost:8000/refresh-token",{credentials: "include"});
+        if(result.ok){
+          response=await fetch("http://localhost:8000/notices",{credentials: "include"});
+        }
+
+        if (!response.ok) {
+            console.log("Failed to load notices — user may need to log in again");
+            return;
+    }
+      }
       const data = await response.json();
       setNotices(data);
       console.log(data[0]);
