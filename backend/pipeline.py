@@ -13,11 +13,23 @@ from backend.db.crud import (
     get_latest_received_at,
     get_stuck_emails
 )
-
-
+from datetime import datetime, timezone, timedelta
+from backend.notification.push import send_push_notification
 from sqlmodel import select
 from backend.db.models import User, Email
 from backend.auth.gmail_auth import get_gmail_service
+
+def notify_if_verified(session, user, extraction_row, subject, received_at):
+    print(f"Saved: {subject} -> status={extraction_row.processing_status}")
+    if extraction_row.processing_status == "verified":
+        is_recent = received_at > datetime.now(timezone.utc) - timedelta(hours=1)
+        if is_recent:
+            title = extraction_row.company_name if extraction_row.company_name else "New TNP Notice"
+            if extraction_row.deadline:
+                body = f"Deadline: {extraction_row.deadline.strftime('%b %d, %I:%M %p')}"
+            else:
+                body = extraction_row.summary
+            send_push_notification(session, user.id, title, body)
 
 def run_pipeline():
     create_db_and_tables()
@@ -48,8 +60,8 @@ def run_pipeline():
                     print(f"Failed: {raw_email.subject} -> {e}")
                     continue
                 extraction_row = save_extraction_result(session, email_row.id, result)
-                print(f"Saved: {raw_email.subject} -> status={extraction_row.processing_status}")
-
+                notify_if_verified(session, user, extraction_row, raw_email.subject,email_row.received_at)
+                
             stuck = get_stuck_emails(session, user_id=user.id)
             for email_row in stuck:
                 raw_email = RawEmail(
@@ -65,4 +77,5 @@ def run_pipeline():
                     print(f"Failed again: {raw_email.subject} -> {e}")
                     continue
                 extraction_row = save_extraction_result(session, email_row.id, result)
-                print(f"Saved: {raw_email.subject} -> status={extraction_row.processing_status}")
+                notify_if_verified(session, user, extraction_row, raw_email.subject,email_row.received_at)
+                

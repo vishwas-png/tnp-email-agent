@@ -5,7 +5,7 @@ from backend.db.crud import get_verified_notices,to_ist
 from google_auth_oauthlib.flow import Flow
 from fastapi.responses import RedirectResponse
 from backend.auth.gmail_auth import SCOPES, CREDENTIALS_FILE
-from backend.db.models import User
+from backend.db.models import User,PushSubscriptionDB
 from sqlmodel import select
 from backend.auth.encrypt import encrypt_token , decrypt_token
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +13,7 @@ from backend.auth.jwt_handler import create_access_token,create_refresh_token,ve
 from fastapi import Response
 from fastapi import Cookie
 from fastapi import HTTPException
+
 
 app = FastAPI()
 
@@ -23,6 +24,12 @@ app.add_middleware(
     allow_headers=["*"],
     allow_credentials=True
 )
+from pydantic import BaseModel
+
+class SubscriptionData(BaseModel):
+    endpoint: str
+    p256dh: str
+    auth: str
 
 
 @app.get("/notices")
@@ -33,8 +40,11 @@ def read_notices(access_token: str = Cookie(None),session: Session = Depends(get
 
     payload = verify_token(access_token)
     user_email = payload["sub"]
+    user = session.exec(select(User).where(User.email == user_email)).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
 
-    results = get_verified_notices(session)
+    results = get_verified_notices(session,user.id)
 
     notices = []
     for email, extraction in results:
@@ -115,5 +125,31 @@ def refresh_token_route(response: Response, refresh_token: str = Cookie(None)):
    response.set_cookie(key="access_token", value=new_access_token, httponly=True)
 
    return { "status":"refreshed"}
-  
+
+@app.post("/save-subscription")
+def save_subscription(
+    data: SubscriptionData,
+    access_token: str = Cookie(None),
+    session: Session = Depends(get_session)
+):
+    if access_token is None:
+        raise HTTPException(status_code=401, detail="Not logged in")
+
+    payload = verify_token(access_token)
+    user_email = payload["sub"]
+
+    user = session.exec(select(User).where(User.email == user_email)).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    subscription = PushSubscriptionDB(
+        user_id=user.id,
+        endpoint=data.endpoint,
+        p256dh=data.p256dh,
+        auth=data.auth
+    )
+    session.add(subscription)
+    session.commit()
+
+    return {"status": "subscription saved"}
       

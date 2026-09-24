@@ -70,11 +70,12 @@ def save_extraction_result(session: Session, email_id: int, result: dict) -> Ext
     return extraction_row
 
 
-def get_verified_notices(session: Session):
+def get_verified_notices(session: Session,user_id:int):
     statement = (
         select(Email, ExtractedInfoDB)
         .join(ExtractedInfoDB, ExtractedInfoDB.email_id == Email.id)
         .where(ExtractedInfoDB.processing_status == "verified")
+        .where(Email.user_id == user_id)
         .order_by(Email.received_at.desc())
         .limit(10)
     )

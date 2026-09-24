@@ -32,3 +32,12 @@ class ExtractedInfoDB(SQLModel, table=True):
     processing_status: Optional[str] = None
     retry_count: int = 0
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PushSubscriptionDB(SQLModel,table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id:int = Field(foreign_key="user.id")
+    ##subscription fields
+    endpoint:str
+    p256dh:str
+    auth:str

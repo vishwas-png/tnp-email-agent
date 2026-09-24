@@ -8,12 +8,12 @@ JWT_KEY=os.getenv("JWT_SECRET");
 
 from datetime import datetime, timedelta, timezone
 
-expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+
 
 def create_access_token(email):
     payload = {
         "sub": email,
-        "exp": expire
+        "exp":datetime.now(timezone.utc) + timedelta(minutes=15)
     }
     access_token = jwt.encode(payload, JWT_KEY, algorithm="HS256")
     return access_token
