@@ -1,0 +1,31 @@
+# Direct dependencies only (pip resolves the rest). Python 3.12.
+# API
+fastapi==0.141.1
+uvicorn==0.52.1
+
+# Database
+sqlmodel==0.0.39
+
+# Scheduler
+APScheduler==3.11.3
+
+# Auth and secrets
+PyJWT==2.13.0
+cryptography==49.0.0
+python-dotenv==1.2.2
+
+# Gmail
+google-api-python-client==2.198.0
+google-auth==2.55.1
+google-auth-oauthlib==1.4.0
+requests==2.34.2
+beautifulsoup4==4.15.0
+
+# LLM pipeline
+langchain-core==1.4.9
+langchain-groq==1.1.3
+langgraph==1.2.9
+pydantic==2.13.4
+
+# Web Push
+pywebpush==2.5.0
