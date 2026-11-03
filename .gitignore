@@ -1,9 +1,23 @@
-credentials.json
-token.json
+# Secrets
 .env
+.env.*
+!.env.example
+credentials.json
+client_secret*.json
+token.json
+*.pem
+
+# Python
 __pycache__/
 *.pyc
+venv/
 .venv/
+
+# Database and DB Browser files
 *.db
-private_key.pem
-public_key.pem
+*.db-journal
+*.sqbpro
+
+# Frontend
+node_modules/
+dist/
