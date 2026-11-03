@@ -40,3 +40,40 @@ Raw notes written after each build task. Source material for the teaching phase.
 - GitHub may keep old commits reachable by hash for a while (cached views, forks). Rotation is what actually protects us.
 - `CLAUDE.md` and `CLAUDE_CODE_PROMPT.md` are not committed (personal notes, public repo).
 - Cookie flags and POST `/refresh-token` moved to Stage 2, together with the other auth fixes.
+
+---
+
+## Stage 2a — Pipeline reliability (2026-11-04)
+
+### What was built
+- **Gmail pagination:** `list_message_ids` follows `nextPageToken`. Live check: 417 emails were waiting since the bookmark; the old code took the newest 100 only.
+- **Oldest first + per-run cap (`MAX_EMAILS_PER_RUN = 50`):** fetch all IDs, process the oldest 50, rest next run.
+- **First sync window:** a new user (no bookmark) gets `newer_than:30d`, not years of mail.
+- **Quote stripping:** the reply header must be a whole line ending in `wrote:` (one wrapped line allowed).
+- **Push:** `webpush` was outside the loop (only the last device got it; zero devices crashed). Now every device is tried in its own `try`; 404/410 deletes the subscription.
+- **Pipeline:** `process_user` per user inside `try` (one broken user no longer stops the others). Notify errors are caught too.
+- **Retry cap:** a crash writes an extraction row with status `error` and `retry_count + 1`; after 3 attempts it becomes `failed_error` and is not retried. No schema change: existing columns reused.
+- **Timezones:** one helper module `backend/timeutils.py` (`as_utc`, `to_ist`). Push deadline now shows IST.
+- **Recency check fixed:** compares aware UTC datetimes. Applies to both passes.
+- **`classify_node`** now gets the subject.
+- `echo=True` removed from the engine (it printed every query with values, including email bodies).
+- First pytest suite: 19 tests in `tests/`. `pytest.ini` limits collection to `tests/` so the manual root scripts never run.
+
+### Why this design
+- **The bookmark bug (most important).** Bookmark = newest saved `received_at`. Gmail lists newest first. If a run saves only the newest N, the bookmark jumps past the older ones and the next query (`after:bookmark`) never sees them. Fix: process oldest first. Then the bookmark only moves forward over emails already saved, and a capped or crashed run resumes where it stopped.
+- **Why save the email before the LLM call:** if the LLM crashes, the email is already in the DB, so pass "stuck emails" finds it. Saving after the LLM would lose it (the bookmark already moved).
+- **Why stuck pass runs first:** otherwise an email that fails in the new-email pass is retried again in the same run, using two of its three attempts at once.
+- **Why a recency window for notifications:** "notify only brand-new emails" needs a definition. 1 hour after `received_at` is it. Catch-up runs (like these 417) send no pushes.
+- **Why `as_utc` treats naive as UTC:** SQLite has no timezone type and returns naive datetimes. We always store UTC, so naive means UTC. The old code compared naive with aware and crashed with `TypeError`.
+
+### Edge cases and limits
+- Scheduler down for more than 1 hour: those emails are saved but never notified. Intended trade-off.
+- `retry_count` now means two things: validation retries (on success) and crash attempts (on failure). Documented, not ideal.
+- A missing `summary` raises a Pydantic error before `validate_node`, so it counts as a crash attempt, not a validation retry.
+- Dedup is still global on `gmail_message_id` (unique constraint), not per user. Fine for Gmail in practice; revisit with Postgres.
+- `MAX_EMAILS_PER_RUN` and `INITIAL_SYNC_DAYS` are guesses, not measured.
+- VAPID `sub` claim is still a placeholder email. Fix at deployment.
+
+### Testing
+- Fake Gmail service with paging; in-memory SQLite with `StaticPool`; fake LLM and fake `webpush`.
+- Tests set fake env keys before importing the backend; `load_dotenv()` does not override existing variables, so the real `.env` is never used.

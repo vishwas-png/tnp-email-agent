@@ -64,7 +64,10 @@ Classify it into exactly one of:
 - "internship": internship opportunity from a company
 - "general_notice": everything else — policy updates, portal instructions, event announcements, reminders
 
-Base your answer only on the email content.
+Base your answer only on the email content (subject + body). The subject often says
+whether it is a job or an internship (for example "Fundwave | Full Stack | 6M+PPO").
+
+Email subject: {subject}
 
 Email:
 {email_body}
