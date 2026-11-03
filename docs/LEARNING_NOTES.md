@@ -77,3 +77,29 @@ Raw notes written after each build task. Source material for the teaching phase.
 ### Testing
 - Fake Gmail service with paging; in-memory SQLite with `StaticPool`; fake LLM and fake `webpush`.
 - Tests set fake env keys before importing the backend; `load_dotenv()` does not override existing variables, so the real `.env` is never used.
+
+---
+
+## Stage 2b — Auth and security (2026-11-04)
+
+### What was built
+- **Login identity from Google.** `/oauth/callback` used to trust the `state` query value as the user's email. Anyone could open `/connect-gmail?email=victim@...`, log in with their *own* Google account, and get a JWT for the victim (and overwrite the victim's Gmail token). Now the callback asks Gmail whose token it is (`users.getProfile` → `emailAddress`) and logs in that account. No scope change: `gmail.readonly` already allows `getProfile`.
+- **Random OAuth `state`:** `secrets.token_urlsafe(32)` stored in an `oauth_state` cookie for 10 minutes; the callback compares with `secrets.compare_digest` and deletes the cookie. This blocks login CSRF (an attacker making your browser finish *their* login).
+- **Signup:** the callback now uses `get_or_create_user`, so a new Google account gets a user row. In Google "testing" mode only listed test users can get through consent anyway.
+- **JWT `type` claim:** access tokens say `"access"`, refresh tokens `"refresh"`; `verify_token(token, expected_type)` rejects the wrong one. Before, a stolen 30-day refresh token worked as an access token.
+- **One cookie helper** (`set_cookie`): `httponly`, `samesite="lax"`, `path="/"`, `max_age` equal to the token lifetime, `secure` from `COOKIE_SECURE` env (off on localhost, on in production).
+- **`/refresh-token` is POST.** GET must not change state (browsers, prefetchers and link previews fire GETs freely). Frontend dashboard updated.
+- **`get_current_user` dependency** replaces the copied cookie → JWT → DB lookup in `/notices` and `/save-subscription`.
+- Callback handles `?error=access_denied` (user pressed Cancel) with a clear 400 instead of a 422.
+
+### Key concepts
+- **`state` vs PKCE:** `state` ties the callback to the browser that started the login (CSRF). PKCE ties the token exchange to the client that started it (code interception). We use a confidential client with a secret, so PKCE is optional here; `state` is not.
+- **SameSite=Lax:** cookies are sent on top-level GET navigation from other sites (so the Google redirect back to us still carries `oauth_state`), but not on cross-site POST/fetch. That is why state-changing routes must be POST.
+- **httpOnly:** JS cannot read the cookie, so XSS cannot steal the token. XSS can still *use* it while the page is open.
+- **Secure:** cookie only sent over HTTPS. Must be on in production, off on `http://localhost` or the browser drops the cookie.
+
+### Limits
+- Logout still does not exist (Stage 3). Tokens cannot be revoked server-side; a stolen refresh token works for 30 days.
+- Old cookies issued before this change have no `type`, so they are rejected once. The user just logs in again.
+- Production cookie setup depends on hosting: if the frontend and API end up on different sites, `SameSite=Lax` cookies are not sent on `fetch` and we would need same-site hosting or `SameSite=None; Secure`. Decide in Stage 7.
+- `REDIRECT_URI` and CORS origin are still hard-coded to localhost (Stage 7).

@@ -10,7 +10,7 @@ function Dashboard() {
     async function fetchNotices() {
       let response = await fetch("http://localhost:8000/notices",{credentials: "include"});
       if(response.status == 401){
-        const result=await fetch("http://localhost:8000/refresh-token",{credentials: "include"});
+        const result=await fetch("http://localhost:8000/refresh-token",{method: "POST", credentials: "include"});
         if(result.ok){
           response=await fetch("http://localhost:8000/notices",{credentials: "include"});
         }

@@ -11,6 +11,13 @@ from backend.auth.encrypt import encrypt_token , decrypt_token
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 CREDENTIALS_FILE = 'credentials.json'
 
+def get_account_email(creds) -> str:
+    # The Gmail profile says which account the token belongs to. Works with the
+    # gmail.readonly scope, so login identity comes from Google, not from the URL.
+    service = build('gmail', 'v1', credentials=creds)
+    return service.users().getProfile(userId='me').execute()['emailAddress'].lower()
+
+
 def get_gmail_service(user_email: str):
     with Session(engine) as session:
         statement = select(User).where(User.email == user_email)

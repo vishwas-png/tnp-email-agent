@@ -4,7 +4,7 @@ from cryptography.fernet import Fernet
 # Fake keys, set before any backend import. load_dotenv() never overrides
 # variables that already exist, so the real .env is not used by tests.
 os.environ["FERNET_KEY"] = Fernet.generate_key().decode()
-os.environ["JWT_SECRET"] = "test-jwt-secret"
+os.environ["JWT_SECRET"] = "test-jwt-secret-that-is-at-least-32-bytes"
 os.environ["GROQ_API_KEY"] = "test-groq-key"
 
 import pytest
