@@ -134,3 +134,34 @@ Raw notes written after each build task. Source material for the teaching phase.
 - If `/me` fails because the server is down, we show "Can't reach the server" rather than logging the user out.
 - `API_URL` defaults to `http://localhost:8000`; set `VITE_API_URL` in production. `FRONTEND_URL` is still hard-coded in the backend (Stage 7).
 - Clicking a push notification does nothing yet (no `notificationclick` handler in the service worker).
+
+---
+
+## Stage 4 — Modern UI rewrite (2026-11-04)
+
+### What was built
+- **Stack:** Tailwind CSS v4 (Vite plugin), shadcn/ui components (Radix based: button, badge, input, skeleton, dropdown-menu), lucide-react icons, framer-motion, TanStack Query, sonner toasts, Geist font (from npm, no font CDN).
+- **Design tokens once** in `src/index.css`: colours (oklch), radius, font, category accents. `.dark` overrides the same names, so every component is theme-aware for free.
+- **Theme:** dark first, toggle remembered in `localStorage`. A tiny inline script in `index.html` applies it before React loads (no white flash). `useTheme` is a `useSyncExternalStore` store so the toggle and the toast theme always agree.
+- **Pages:** landing/login (hero, Google button, feature cards, preview stack), Home (greeting, 3 stat tiles, notification banner, action cards, upcoming deadlines), Dashboard (sticky toolbar with search, category chips, sort; card grid; Load more; skeletons; empty and error states), Chatbot placeholder ("coming soon").
+- **Header:** glass, sticky, animated active pill (`layoutId`), user menu with logout. Phones get a bottom tab bar.
+- **Backend for the UI:** `/notices` with `limit/offset/category/q/sort` returning `{items, has_more}`; `/stats` for the tiles.
+
+### Why these designs
+- **TanStack Query** instead of `useEffect` + `useState`: caching (Home and Dashboard share data), `useInfiniteQuery` for Load more, `keepPreviousData` so old cards stay while a new filter loads (no layout jump), retries skipped for `AuthError`.
+- **`queryClient.clear()` on logout:** cached notices would otherwise be visible to the next person using the browser.
+- **Offset paging, not cursor** (changed from the proposal): simple and works for both sort orders. Limit: if new notices arrive between pages, items can shift (one shown twice or skipped). Cursor (keyset) paging fixes that but needs a different cursor per sort order.
+- **`has_more` via `limit + 1`:** ask for one extra row; if it exists there is another page. No separate COUNT query.
+- **`safeLink`:** `apply_link` comes from the LLM reading email text, so it is untrusted. Only `http(s)` URLs become links (blocks `javascript:` links), with `rel="noopener noreferrer"`.
+- **Server-side search/filter:** filtering only the loaded page would miss older notices.
+- **Blur only on a few surfaces:** `backdrop-filter` on 24+ cards is expensive to paint. Grid cards use a plain translucent `surface`; header, toolbar and panels keep the glass blur.
+
+### Checked (in Chrome)
+- Desktop 1536 px: login, home, dashboard (search "siemens", Internship filter, Deadline sort, Load more 12 → 24), light mode, error screen when the backend was down.
+- Phone 375 px (iframe): login rendered; home and dashboard have no horizontal page scroll; the filter-chip row scrolls sideways on purpose. Phone screenshots of home/dashboard could not be captured (browser timeouts under low memory), so they were checked by measurement, not by eye.
+
+### Limits
+- JS bundle is ~190 kB gzipped (framer-motion + Radix). Route-level code splitting would help.
+- `deadlines_next_7_days` counts only verified notices; one deadline field per notice.
+- Name comes from the email address, not Google's profile (no extra scope).
+- Chatbot page is a placeholder until Stage 6.
