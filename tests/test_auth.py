@@ -137,7 +137,7 @@ def test_refresh_is_post_only(client, user):
 
 def test_notices_are_scoped_to_the_logged_in_user(client, user):
     client.cookies.set("access_token", create_access_token(user.email))
-    assert client.get("/notices").json() == []
+    assert client.get("/notices").json() == {"items": [], "has_more": False}
     client.cookies.clear()
     assert client.get("/notices").status_code == 401
 

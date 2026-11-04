@@ -1,6 +1,8 @@
+import json
 import os
 import secrets
-from fastapi import FastAPI, Depends, Response, Cookie, HTTPException
+from typing import Literal
+from fastapi import FastAPI, Depends, Response, Cookie, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from google_auth_oauthlib.flow import Flow
@@ -8,7 +10,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from backend.db.database import get_session
-from backend.db.crud import get_verified_notices, get_or_create_user, to_ist
+from backend.db.crud import get_verified_notices, get_notice_stats, get_or_create_user, to_ist
 from backend.db.models import User, PushSubscriptionDB
 from backend.auth.gmail_auth import SCOPES, CREDENTIALS_FILE, get_account_email
 from backend.auth.encrypt import encrypt_token
@@ -90,29 +92,44 @@ class SubscriptionData(BaseModel):
     auth: str
 
 
+def notice_to_dict(email, extraction) -> dict:
+    return {
+        "gmail_message_id": email.gmail_message_id,
+        "subject": email.subject,
+        "received_at": to_ist(email.received_at),
+        "category": extraction.category,
+        "company_name": extraction.company_name,
+        "role": extraction.role,
+        "eligibility": extraction.eligibility,
+        "apply_link": extraction.apply_link,
+        "deadline": to_ist(extraction.deadline),
+        "summary": extraction.summary,
+        "action_items": json.loads(extraction.action_items) if extraction.action_items else [],
+    }
+
+
 @app.get("/notices")
-def read_notices(user: User = Depends(get_current_user), session: Session = Depends(get_session)):
-    results = get_verified_notices(session, user.id)
+def read_notices(
+    limit: int = Query(20, ge=1, le=50),
+    offset: int = Query(0, ge=0),
+    category: Literal["placement", "internship", "general_notice"] | None = None,
+    q: str | None = Query(None, max_length=100),
+    sort: Literal["received", "deadline"] = "received",
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    # Ask for one extra row: if it comes back, there is another page.
+    rows = get_verified_notices(session, user.id, limit=limit + 1, offset=offset,
+                                category=category, q=q.strip() if q else None, sort=sort)
+    return {
+        "items": [notice_to_dict(email, extraction) for email, extraction in rows[:limit]],
+        "has_more": len(rows) > limit,
+    }
 
-    notices = []
-    for email, extraction in results:
-        notice_dict = {
-            "gmail_message_id": email.gmail_message_id,
-            "subject": email.subject,
-            "received_at": to_ist(email.received_at),
-            "summary": extraction.summary,
-            "action_items": extraction.action_items,
-        }
-        if extraction.category:
-            notice_dict["category"] = extraction.category
-        if extraction.deadline:
-            notice_dict["deadline"] = to_ist(extraction.deadline)
-        if extraction.company_name:
-            notice_dict["company_name"] = extraction.company_name
 
-        notices.append(notice_dict)
-
-    return notices
+@app.get("/stats")
+def read_stats(user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    return get_notice_stats(session, user.id)
 
 
 @app.get("/connect-gmail")

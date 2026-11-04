@@ -1,7 +1,8 @@
 from sqlmodel import Session, select, func
+from sqlalchemy import case
 from backend.db.models import User, Email, ExtractedInfoDB
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from backend.timeutils import as_utc, to_ist  # to_ist is re-exported for the API
 
 # Statuses that end processing. Anything else (no row, or "error") is retried.
@@ -85,17 +86,56 @@ def record_failure(session: Session, email_id: int) -> ExtractedInfoDB:
     return extraction_row
 
 
-def get_verified_notices(session: Session,user_id:int):
-    statement = (
-        select(Email, ExtractedInfoDB)
+def verified_notices_query(user_id: int, *columns):
+    return (
+        select(*(columns or (Email, ExtractedInfoDB)))
+        .select_from(Email)
         .join(ExtractedInfoDB, ExtractedInfoDB.email_id == Email.id)
         .where(ExtractedInfoDB.processing_status == "verified")
         .where(Email.user_id == user_id)
-        .order_by(Email.received_at.desc())
-        .limit(10)
     )
-    results = session.exec(statement).all()
-    return results
+
+
+def get_verified_notices(session: Session, user_id: int, limit: int = 20, offset: int = 0,
+                         category: str | None = None, q: str | None = None, sort: str = "received"):
+    statement = verified_notices_query(user_id)
+
+    if category:
+        statement = statement.where(ExtractedInfoDB.category == category)
+    if q:
+        pattern = f"%{q}%"
+        statement = statement.where(
+            Email.subject.ilike(pattern)
+            | ExtractedInfoDB.summary.ilike(pattern)
+            | ExtractedInfoDB.company_name.ilike(pattern)
+        )
+
+    if sort == "deadline":
+        # Upcoming deadlines first (soonest on top), then everything else, newest first.
+        now = datetime.now(timezone.utc).replace(tzinfo=None)  # DB stores naive UTC
+        is_upcoming = case((ExtractedInfoDB.deadline >= now, 0), else_=1)
+        upcoming_deadline = case((ExtractedInfoDB.deadline >= now, ExtractedInfoDB.deadline), else_=None)
+        statement = statement.order_by(is_upcoming, upcoming_deadline, Email.received_at.desc())
+    else:
+        statement = statement.order_by(Email.received_at.desc())
+
+    statement = statement.order_by(Email.id.desc()).offset(offset).limit(limit)
+    return session.exec(statement).all()
+
+
+def get_notice_stats(session: Session, user_id: int) -> dict:
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    week_ago, week_ahead = now - timedelta(days=7), now + timedelta(days=7)
+
+    def count(*conditions):
+        statement = verified_notices_query(user_id, func.count(Email.id)).where(*conditions)
+        return session.exec(statement).one()
+
+    return {
+        "total": count(),
+        "new_this_week": count(Email.received_at >= week_ago),
+        "deadlines_next_7_days": count(ExtractedInfoDB.deadline >= now, ExtractedInfoDB.deadline <= week_ahead),
+    }
 
 
 def get_latest_received_at(session: Session, user_id: int) -> datetime | None:
