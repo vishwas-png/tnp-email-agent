@@ -103,3 +103,34 @@ Raw notes written after each build task. Source material for the teaching phase.
 - Old cookies issued before this change have no `type`, so they are rejected once. The user just logs in again.
 - Production cookie setup depends on hosting: if the frontend and API end up on different sites, `SameSite=Lax` cookies are not sent on `fetch` and we would need same-site hosting or `SameSite=None; Secure`. Decide in Stage 7.
 - `REDIRECT_URI` and CORS origin are still hard-coded to localhost (Stage 7).
+
+---
+
+## Stage 3 — Login polish (2026-11-04)
+
+### What was built
+- **`apiFetch` (`frontend/src/api.js`):** one wrapper for every API call. Sends cookies; on 401 calls `POST /refresh-token` once and retries once; a second 401 fires an `auth:expired` event and throws `AuthError`. Parallel 401s share one refresh (a module-level promise), so three requests failing together cause one refresh, not three.
+- **Auth context:** `AuthProvider` calls `/me` on load. Status is `loading`, `in`, `out`, or `error` (server unreachable — not the same as logged out, so we show "Try again", not the login page).
+- **`ProtectedRoute` + `AppLayout`:** every page except `/login` is protected. Header with email and Log out lives in one layout, not on each page.
+- **Login page** with "Continue with Google" and a line on what access is requested. Callback now **redirects** to the app (`/` on success, `/login?error=denied|state` on failure) instead of showing JSON.
+- **`/me`** returns email and name. **`POST /logout`** clears both cookies.
+- **Push subscriptions upsert by `endpoint`.** Same device twice = one row (keys updated). If another user logs in on the same browser, the row moves to them.
+- **Notifications:** auto-prompt once after first login (remembered in `localStorage`), banner on Home for each permission state: not asked (button), blocked (how to unblock), unsupported. If already granted, the subscription is re-sent on each Home visit so the backend stays in sync.
+- Dead (404/410) subscriptions were already handled in Stage 2a.
+
+### Why these designs
+- **Why `endpoint` is the key:** a subscription belongs to one browser on one device. One user has many devices; one device can be used by different users over time. `user_id` alone would duplicate rows every time the user clicks Enable.
+- **Why the event for "session over":** `apiFetch` is plain JS and cannot call React state. The event lets any page's failed request update the auth context in one place.
+- **Why `subscription.toJSON()`:** it already gives `p256dh`/`auth` as base64url strings, the format pywebpush expects. The old manual ArrayBuffer → base64 code is gone.
+
+### Logout and JWT: the honest limit
+- Logout deletes the cookies in *this* browser. The tokens themselves stay valid until they expire (access 15 min, refresh 30 days). If someone copied the refresh token, logout does not stop them.
+- Options: (1) **short expiry** only — simple, still a 30-day window; (2) **server-side blocklist** of revoked token IDs (`jti`) checked on every request — works, but every request now hits a store, losing the "stateless" benefit; (3) **refresh-token rotation**: store refresh tokens (hashed) in the DB, issue a new one on every refresh and invalidate the old one; logout deletes the row; reuse of an old token signals theft and kills the whole session.
+- **Recommendation: (3) rotation**, when we move to Postgres. Access tokens stay stateless (fast), only the refresh path touches the DB (rare), and logout becomes real.
+
+### Edge cases and limits
+- Auto-prompt without a click: Chrome may show a quiet prompt; Firefox and Safari usually require a click. The banner button covers this.
+- Once "denied", a site cannot ask again; only the user can change it in browser settings.
+- If `/me` fails because the server is down, we show "Can't reach the server" rather than logging the user out.
+- `API_URL` defaults to `http://localhost:8000`; set `VITE_API_URL` in production. `FRONTEND_URL` is still hard-coded in the backend (Stage 7).
+- Clicking a push notification does nothing yet (no `notificationclick` handler in the service worker).

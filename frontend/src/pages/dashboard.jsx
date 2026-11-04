@@ -1,37 +1,43 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+import { AuthError, apiFetch } from "../api";
 import NoticeCard from "./NoticeCard";
 import "./Dashboard.css";
 
-
 function Dashboard() {
-  const [notices, setNotices] = useState([]);
+  const [notices, setNotices] = useState(null);
+  const [error, setError] = useState(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    async function fetchNotices() {
-      let response = await fetch("http://localhost:8000/notices",{credentials: "include"});
-      if(response.status == 401){
-        const result=await fetch("http://localhost:8000/refresh-token",{method: "POST", credentials: "include"});
-        if(result.ok){
-          response=await fetch("http://localhost:8000/notices",{credentials: "include"});
-        }
+    apiFetch("/notices")
+      .then((data) => {
+        setNotices(data);
+        setError(null);
+      })
+      .catch((e) => {
+        // AuthError: the auth context already sends the user to login.
+        if (!(e instanceof AuthError)) setError("Could not load notices.");
+      });
+  }, [attempt]);
 
-        if (!response.ok) {
-            console.log("Failed to load notices — user may need to log in again");
-            return;
-    }
-      }
-      const data = await response.json();
-      setNotices(data);
-      console.log(data[0]);
-    }
-    fetchNotices();
-  }, []);
+  function retry() {
+    setError(null);
+    setAttempt((n) => n + 1);
+  }
 
   return (
     <div>
       <h1>Dashboard</h1>
+      {error && (
+        <div className="page-message">
+          <p className="error-text">{error}</p>
+          <button onClick={retry}>Try again</button>
+        </div>
+      )}
+      {!error && notices === null && <p className="page-message">Loading notices…</p>}
+      {notices?.length === 0 && <p className="page-message">No notices yet.</p>}
       <div className="notice-grid">
-        {notices.map((notice) => (
+        {notices?.map((notice) => (
           <NoticeCard key={notice.gmail_message_id} notice={notice} />
         ))}
       </div>

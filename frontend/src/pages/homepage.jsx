@@ -1,57 +1,66 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { alreadyAsked, enableNotifications, getPermission, markAsked, subscribeAndSave } from "../push";
 
-
-function urlBase64ToUint8Array(base64String) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = atob(base64);
-  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
-}
-
-async function subscribeToPush() {
-  const permission = await Notification.requestPermission();
-  if (permission !== "granted") {
-    console.log("Notification permission not granted");
-    return;
+function NotificationBanner({ permission, onEnable, error }) {
+  if (permission === "granted") {
+    return error ? <div className="banner banner-warning">{error}</div> : null;
   }
-
-  const registration = await navigator.serviceWorker.ready;
-
-  const subscription = await registration.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(import.meta.env.VITE_VAPID_PUBLIC_KEY)
-  });
-
-  function arrayBufferToBase64(buffer) {
-    const bytes = new Uint8Array(buffer);
-    let binary = "";
-    bytes.forEach((b) => (binary += String.fromCharCode(b)));
-    return window.btoa(binary);
+  if (permission === "unsupported") {
+    return <div className="banner">This browser does not support push notifications.</div>;
   }
-
-  await fetch("http://localhost:8000/save-subscription", {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      endpoint: subscription.endpoint,
-      p256dh: arrayBufferToBase64(subscription.getKey("p256dh")),
-      auth: arrayBufferToBase64(subscription.getKey("auth")),
-    }),
-  });
+  if (permission === "denied") {
+    return (
+      <div className="banner banner-warning">
+        Notifications are blocked. Allow them in your browser's site settings (the icon left of the address bar), then reload.
+      </div>
+    );
+  }
+  return (
+    <div className="banner">
+      <span>Get a notification when a new TNP notice arrives.</span>
+      <button onClick={onEnable}>Enable notifications</button>
+      {error && <span className="error-text">{error}</span>}
+    </div>
+  );
 }
 
 function HomePage() {
+  const [permission, setPermission] = useState(getPermission);
+  const [error, setError] = useState(null);
+
+  function enable() {
+    setError(null);
+    enableNotifications()
+      .then(setPermission)
+      .catch(() => setError("Could not turn on notifications. Please try again."));
+  }
+
+  useEffect(() => {
+    const current = getPermission();
+    if (current === "granted") {
+      // Keep the backend's copy of this device's subscription in sync.
+      subscribeAndSave().catch(() => setError("Could not register this device for notifications."));
+    } else if (current === "default" && !alreadyAsked()) {
+      // Ask once, right after the first login. Some browsers ignore prompts that are
+      // not caused by a click; the banner button is the fallback.
+      markAsked();
+      enableNotifications()
+        .then(setPermission)
+        .catch(() => setPermission(getPermission()));
+    }
+  }, []);
+
   return (
-    <div>
+    <div className="page-message">
       <h1>Welcome back</h1>
+      <NotificationBanner permission={permission} onEnable={enable} error={error} />
       <Link to="/dashboard">
         <button>Dashboard</button>
-      </Link>
+      </Link>{" "}
       <Link to="/chatbot">
         <button>Talk with chatbot</button>
       </Link>
-      <button onClick={subscribeToPush}>Enable Notifications</button>
     </div>
   );
 }

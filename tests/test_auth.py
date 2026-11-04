@@ -8,7 +8,7 @@ from backend.api import main
 from backend.auth.encrypt import decrypt_token
 from backend.auth.jwt_handler import create_access_token, create_refresh_token
 from backend.db.database import get_session
-from backend.db.models import User
+from backend.db.models import User, PushSubscriptionDB
 
 
 class FakeCreds:
@@ -54,22 +54,27 @@ def test_connect_gmail_uses_random_state_in_short_lived_cookie(client):
     assert second_state != state
 
 
+def callback(client, **params):
+    return client.get("/oauth/callback", params=params, follow_redirects=False)
+
+
 def test_callback_rejects_state_that_does_not_match_cookie(client, monkeypatch):
     google_account(monkeypatch, "student@example.com")
     start_login(client)
-    response = client.get("/oauth/callback", params={"code": "c", "state": "forged"})
-    assert response.status_code == 400
+    response = callback(client, code="c", state="forged")
+    assert response.headers["location"] == f"{main.FRONTEND_URL}/login?error=state"
+    assert "access_token" not in response.headers.get("set-cookie", "")
 
 
 def test_callback_rejects_missing_state_cookie(client, monkeypatch):
     google_account(monkeypatch, "student@example.com")
-    response = client.get("/oauth/callback", params={"code": "c", "state": "anything"})
-    assert response.status_code == 400
+    response = callback(client, code="c", state="anything")
+    assert response.headers["location"] == f"{main.FRONTEND_URL}/login?error=state"
 
 
 def test_callback_handles_user_denying_consent(client):
-    response = client.get("/oauth/callback", params={"error": "access_denied"})
-    assert response.status_code == 400
+    response = callback(client, error="access_denied")
+    assert response.headers["location"] == f"{main.FRONTEND_URL}/login?error=denied"
 
 
 def test_login_identity_comes_from_google_not_the_request(client, session, monkeypatch):
@@ -80,10 +85,10 @@ def test_login_identity_comes_from_google_not_the_request(client, session, monke
     google_account(monkeypatch, "attacker@example.com")
 
     _, state = start_login(client)
-    response = client.get("/oauth/callback", params={"code": "c", "state": state})
+    response = callback(client, code="c", state=state)
 
-    assert response.status_code == 200
-    assert response.json()["email"] == "attacker@example.com"
+    assert response.headers["location"] == f"{main.FRONTEND_URL}/"
+    assert client.get("/me").json()["email"] == "attacker@example.com"
     session.refresh(victim)
     assert victim.token_json is None  # victim's Gmail token untouched
     attacker = session.exec(select(User).where(User.email == "attacker@example.com")).one()
@@ -93,9 +98,10 @@ def test_login_identity_comes_from_google_not_the_request(client, session, monke
 def test_login_sets_both_cookies_with_flags(client, monkeypatch):
     google_account(monkeypatch, "student@example.com")
     _, state = start_login(client)
-    response = client.get("/oauth/callback", params={"code": "c", "state": state})
+    response = callback(client, code="c", state=state)
 
     cookies = response.headers.get_list("set-cookie")
+    assert any(c.startswith("oauth_state=") and "Max-Age=0" in c for c in cookies)  # one-time use
     access = next(c for c in cookies if c.startswith("access_token="))
     refresh = next(c for c in cookies if c.startswith("refresh_token="))
     for cookie in (access, refresh):
@@ -106,7 +112,7 @@ def test_login_sets_both_cookies_with_flags(client, monkeypatch):
 
 
 def test_secure_flag_follows_env_setting(client, monkeypatch):
-    monkeypatch.setattr(main, "COOKIE_SECURE", True)
+    monkeypatch.setitem(main.COOKIE_FLAGS, "secure", True)
     response, _ = start_login(client)
     assert "Secure" in response.headers["set-cookie"]
 
@@ -134,3 +140,50 @@ def test_notices_are_scoped_to_the_logged_in_user(client, user):
     assert client.get("/notices").json() == []
     client.cookies.clear()
     assert client.get("/notices").status_code == 401
+
+
+def test_me_returns_the_logged_in_user(client, user):
+    assert client.get("/me").status_code == 401
+    client.cookies.set("access_token", create_access_token(user.email))
+    assert client.get("/me").json() == {"email": user.email, "name": None}
+
+
+def test_logout_clears_both_cookies(client, monkeypatch):
+    # Log in through the real flow so the cookies are set by the server, like a browser.
+    google_account(monkeypatch, "student@example.com")
+    _, state = start_login(client)
+    callback(client, code="c", state=state)
+    assert client.get("/me").status_code == 200
+
+    response = client.post("/logout")
+
+    cleared = response.headers.get_list("set-cookie")
+    for key in ("access_token", "refresh_token"):
+        assert any(c.startswith(f"{key}=") and "Max-Age=0" in c and "Path=/" in c for c in cleared)
+    assert client.get("/me").status_code == 401
+
+
+def subscribe(client, email, endpoint, key="p"):
+    client.cookies.set("access_token", create_access_token(email))
+    return client.post("/save-subscription", json={"endpoint": endpoint, "p256dh": key, "auth": "a"})
+
+
+def test_same_device_subscribing_twice_keeps_one_row(client, session, user):
+    subscribe(client, user.email, "https://push/device-1", key="old")
+    subscribe(client, user.email, "https://push/device-1", key="new")
+    subscribe(client, user.email, "https://push/device-2")
+
+    rows = session.exec(select(PushSubscriptionDB).order_by(PushSubscriptionDB.endpoint)).all()
+    assert [(r.endpoint, r.p256dh) for r in rows] == [("https://push/device-1", "new"), ("https://push/device-2", "p")]
+
+
+def test_device_moves_to_the_user_now_logged_in(client, session, user):
+    other = User(email="friend@example.com")
+    session.add(other)
+    session.commit()
+
+    subscribe(client, user.email, "https://push/shared-laptop")
+    subscribe(client, other.email, "https://push/shared-laptop")
+
+    rows = session.exec(select(PushSubscriptionDB)).all()
+    assert [r.user_id for r in rows] == [other.id]

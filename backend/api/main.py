@@ -23,9 +23,11 @@ from backend.auth.jwt_handler import (
 
 app = FastAPI()
 
+FRONTEND_URL = "http://localhost:5173"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[FRONTEND_URL],
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=True
@@ -39,16 +41,22 @@ OAUTH_STATE_COOKIE = "oauth_state"
 OAUTH_STATE_LIFETIME_SECONDS = 600
 
 
+AUTH_COOKIES = ("access_token", "refresh_token")
+COOKIE_FLAGS = dict(
+    path="/",
+    httponly=True,       # JavaScript cannot read it, so XSS cannot steal it
+    secure=COOKIE_SECURE,
+    samesite="lax",      # not sent on cross-site POSTs, which blocks CSRF on our POST routes
+)
+
+
 def set_cookie(response: Response, key: str, value: str, max_age: int):
-    response.set_cookie(
-        key=key,
-        value=value,
-        max_age=max_age,
-        path="/",
-        httponly=True,       # JavaScript cannot read it, so XSS cannot steal it
-        secure=COOKIE_SECURE,
-        samesite="lax",      # not sent on cross-site POSTs, which blocks CSRF on our POST routes
-    )
+    response.set_cookie(key=key, value=value, max_age=max_age, **COOKIE_FLAGS)
+
+
+def clear_cookie(response: Response, key: str):
+    # The browser only removes a cookie if path/flags match the ones it was set with.
+    response.delete_cookie(key=key, **COOKIE_FLAGS)
 
 
 def set_auth_cookies(response: Response, email: str):
@@ -122,21 +130,24 @@ def connect_gmail():
     return response
 
 
+def login_failed(reason: str):
+    response = RedirectResponse(f"{FRONTEND_URL}/login?error={reason}")
+    clear_cookie(response, OAUTH_STATE_COOKIE)
+    return response
+
+
 @app.get("/oauth/callback")
 def callback(
-    response: Response,
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
     oauth_state: str | None = Cookie(None),
     session: Session = Depends(get_session),
 ):
-    response.delete_cookie(OAUTH_STATE_COOKIE, path="/")
-
     if error:
-        raise HTTPException(status_code=400, detail=f"Google login failed: {error}")
+        return login_failed("denied")
     if not code or not state or not oauth_state or not secrets.compare_digest(state, oauth_state):
-        raise HTTPException(status_code=400, detail="Invalid login state, please start again")
+        return login_failed("state")
 
     flow = make_flow()
     flow.fetch_token(code=code)
@@ -149,8 +160,25 @@ def callback(
     session.add(user)
     session.commit()
 
+    # Back to the app, logged in. Cookies go on the redirect itself.
+    response = RedirectResponse(f"{FRONTEND_URL}/")
+    clear_cookie(response, OAUTH_STATE_COOKIE)
     set_auth_cookies(response, email)
-    return {"status": "success", "email": email}
+    return response
+
+
+@app.get("/me")
+def me(user: User = Depends(get_current_user)):
+    return {"email": user.email, "name": user.name}
+
+
+@app.post("/logout")
+def logout(response: Response):
+    # Only removes the browser's copy. The JWTs stay valid until they expire,
+    # because nothing is stored on the server to revoke (see LEARNING_NOTES).
+    for key in AUTH_COOKIES:
+        clear_cookie(response, key)
+    return {"status": "logged out"}
 
 
 @app.post("/refresh-token")
@@ -169,12 +197,14 @@ def save_subscription(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    subscription = PushSubscriptionDB(
-        user_id=user.id,
-        endpoint=data.endpoint,
-        p256dh=data.p256dh,
-        auth=data.auth
-    )
+    # endpoint identifies one browser on one device, so it is the real key.
+    # Update if we have it (also moves it to whoever is logged in on that device now).
+    subscription = session.exec(
+        select(PushSubscriptionDB).where(PushSubscriptionDB.endpoint == data.endpoint)
+    ).first() or PushSubscriptionDB(endpoint=data.endpoint)
+    subscription.user_id = user.id
+    subscription.p256dh = data.p256dh
+    subscription.auth = data.auth
     session.add(subscription)
     session.commit()
 
